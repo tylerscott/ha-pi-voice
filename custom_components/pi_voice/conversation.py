@@ -148,7 +148,22 @@ class PiVoiceConversationEntity(conversation.ConversationEntity, conversation.Ab
             score = (state.state != STATE_UNAVAILABLE, rank)
             if best is None or score > best[0]:
                 best = (score, entry.entity_id, entry.platform)
-        return (best[1], best[2]) if best else None
+        if best is None:
+            return None
+        entity_id, platform = best[1], best[2]
+        if platform != "music_assistant":
+            # A device's own player often has a Music Assistant twin that isn't assigned to the area. MA players
+            # point at the device player through their active_queue (or share its friendly name).
+            best_state = self.hass.states.get(entity_id)
+            friendly = best_state.attributes.get("friendly_name") if best_state else None
+            for state in self.hass.states.async_all("media_player"):
+                if state.state == STATE_UNAVAILABLE or not state.attributes.get("mass_player_type"):
+                    continue
+                if state.attributes.get("active_queue") == entity_id or (
+                    friendly and state.attributes.get("friendly_name") == friendly
+                ):
+                    return (state.entity_id, "music_assistant")
+        return (entity_id, platform)
 
     # --- turn ----------------------------------------------------------------
 
