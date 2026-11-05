@@ -118,7 +118,7 @@ class PiVoiceConversationEntity(conversation.ConversationEntity, conversation.Ab
         return context
 
     def _music_player(self, area_id: str) -> tuple[str, str] | None:
-        """Best media player in an area: can search, else skip tracks, else play media; available first."""
+        """Best media player in an area: Music Assistant first, then search, skip, play; available first."""
         devices = dr.async_get(self.hass)
         best: tuple[tuple[bool, int], str, str] | None = None
         for entry in er.async_get(self.hass).entities.values():
@@ -134,7 +134,10 @@ class PiVoiceConversationEntity(conversation.ConversationEntity, conversation.Ab
             if state is None:
                 continue
             features = state.attributes.get(ATTR_SUPPORTED_FEATURES, 0)
-            if features & MediaPlayerEntityFeature.SEARCH_MEDIA:
+            if entry.platform == "music_assistant":
+                # The room's Music Assistant player beats the device's own player entity.
+                rank = 4
+            elif features & MediaPlayerEntityFeature.SEARCH_MEDIA:
                 rank = 3
             elif features & MediaPlayerEntityFeature.NEXT_TRACK:
                 rank = 2
