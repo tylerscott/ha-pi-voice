@@ -27,11 +27,13 @@
         "title": "pi-voice options",
         "data": {
           "prompt": "Standing instructions",
+          "keep_listening": "Keep listening after replies",
           "handoff_after": "Hand off after (seconds, 0 = never)",
           "timeout": "Request timeout (seconds)"
         },
         "data_description": {
           "prompt": "Sent to the agent as standing instructions; the agent keeps its own persona and memory.",
+          "keep_listening": "After each reply the satellite keeps the microphone open for a follow-up without the wake word. The agent closes the exchange when you say thanks, that's all, or goodbye.",
           "handoff_after": "If the agent hasn't answered by then, the satellite says it is working on it and announces the answer later. Assist cancels turns at about 30 seconds.",
           "timeout": "How long a handed-off request may run in total."
         }

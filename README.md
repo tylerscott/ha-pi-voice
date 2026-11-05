@@ -23,9 +23,8 @@ text and text to speech stay in Home Assistant while the thinking happens in pi-
   answer arrives it is announced on that satellite. If the answer ends in a
   question the satellite starts listening again.
 - Replies stream: text-to-speech starts on the first sentence while the agent is still finishing.
-- A reply that ends in a question mark keeps the microphone open.
+- By default the microphone stays open after every reply so you can follow up without the wake word; the agent closes the exchange when you say thanks, that's all, or goodbye. Turn this off with the *Keep listening after replies* option, after which only replies ending in a question keep the mic open.
 
 ## Options
 
-Instructions (sent to the agent as standing instructions), hand-off seconds, and
-request timeout.
+Instructions (sent to the agent as standing instructions), keep listening after replies, hand-off seconds, and request timeout.

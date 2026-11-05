@@ -17,6 +17,7 @@ from homeassistant.config_entries import (
 from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
+    BooleanSelector,
     NumberSelector,
     NumberSelectorConfig,
     NumberSelectorMode,
@@ -29,10 +30,12 @@ from .api import PiVoiceAuthError, PiVoiceClient, PiVoiceConnectionError, PiVoic
 from .const import (
     CONF_API_KEY,
     CONF_HANDOFF,
+    CONF_KEEP_LISTENING,
     CONF_PROMPT,
     CONF_TIMEOUT,
     CONF_URL,
     DEFAULT_HANDOFF,
+    DEFAULT_KEEP_LISTENING,
     DEFAULT_PROMPT,
     DEFAULT_TIMEOUT,
     DOMAIN,
@@ -71,6 +74,7 @@ class PiVoiceConfigFlow(ConfigFlow, domain=DOMAIN):
                         CONF_PROMPT: DEFAULT_PROMPT,
                         CONF_TIMEOUT: DEFAULT_TIMEOUT,
                         CONF_HANDOFF: DEFAULT_HANDOFF,
+                        CONF_KEEP_LISTENING: DEFAULT_KEEP_LISTENING,
                     },
                 )
         return self.async_show_form(
@@ -141,6 +145,7 @@ class PiVoiceOptionsFlow(OptionsFlowWithReload):
                 vol.Optional(CONF_PROMPT, default=options.get(CONF_PROMPT, DEFAULT_PROMPT)): TextSelector(
                     TextSelectorConfig(type=TextSelectorType.TEXT, multiline=True)
                 ),
+                vol.Optional(CONF_KEEP_LISTENING, default=options.get(CONF_KEEP_LISTENING, DEFAULT_KEEP_LISTENING)): BooleanSelector(),
                 vol.Optional(CONF_HANDOFF, default=options.get(CONF_HANDOFF, DEFAULT_HANDOFF)): NumberSelector(
                     NumberSelectorConfig(min=0, max=MAX_HANDOFF, step=1, mode=NumberSelectorMode.BOX, unit_of_measurement="s")
                 ),

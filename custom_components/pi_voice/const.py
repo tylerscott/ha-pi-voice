@@ -7,9 +7,11 @@ CONF_API_KEY = "api_key"
 CONF_PROMPT = "prompt"
 CONF_TIMEOUT = "timeout"
 CONF_HANDOFF = "handoff_after"
+CONF_KEEP_LISTENING = "keep_listening"
 
 DEFAULT_TIMEOUT = 600
 DEFAULT_HANDOFF = 15
+DEFAULT_KEEP_LISTENING = True
 MAX_HANDOFF = 29
 DEFAULT_PROMPT = (
     "You are answering through a smart speaker via Home Assistant Assist. "

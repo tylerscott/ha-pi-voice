@@ -22,9 +22,11 @@ from . import PiVoiceConfigEntry
 from .api import PiVoiceAuthError, PiVoiceConnectionError, PiVoiceError
 from .const import (
     CONF_HANDOFF,
+    CONF_KEEP_LISTENING,
     CONF_PROMPT,
     CONF_TIMEOUT,
     DEFAULT_HANDOFF,
+    DEFAULT_KEEP_LISTENING,
     DEFAULT_PROMPT,
     DEFAULT_TIMEOUT,
     DOMAIN,
@@ -173,6 +175,7 @@ class PiVoiceConversationEntity(conversation.ConversationEntity, conversation.Ab
             _anext(events), name=f"{DOMAIN} first delta {chat_log.conversation_id}"
         )
         collected: list[str] = []
+        meta: dict[str, Any] = {}
         try:
             if handoff := float(options.get(CONF_HANDOFF, DEFAULT_HANDOFF)):
                 done, _ = await asyncio.wait({first}, timeout=handoff)
@@ -190,7 +193,7 @@ class PiVoiceConversationEntity(conversation.ConversationEntity, conversation.Ab
 
         try:
             async for _content in chat_log.async_add_delta_content_stream(
-                user_input.agent_id, self._deltas(first_event, events, collected)
+                user_input.agent_id, self._deltas(first_event, events, collected, meta)
             ):
                 pass
         except asyncio.CancelledError:
@@ -201,13 +204,18 @@ class PiVoiceConversationEntity(conversation.ConversationEntity, conversation.Ab
             if not collected:
                 return self._error(user_input, chat_log, self._failure_message(err))
             _LOGGER.warning("pi-voice stream ended early: %s", err)
-        return conversation.async_get_result_from_chat_log(user_input, chat_log)
+        result = conversation.async_get_result_from_chat_log(user_input, chat_log)
+        if options.get(CONF_KEEP_LISTENING, DEFAULT_KEEP_LISTENING):
+            # Stay in the conversation unless the agent said the exchange is over.
+            result.continue_conversation = bool(meta.get("continue_conversation", True))
+        return result
 
     @staticmethod
     async def _deltas(
         first_event: tuple[str, Any] | None,
         events: AsyncIterator[tuple[str, Any]],
         collected: list[str],
+        meta: dict[str, Any],
     ) -> AsyncGenerator[dict[str, Any]]:
         """Turn pi-voice events into chat-log deltas, remembering the text for late delivery."""
         yield {"role": "assistant"}
@@ -224,6 +232,7 @@ class PiVoiceConversationEntity(conversation.ConversationEntity, conversation.Ab
                 got_text = True
                 yield {"content": data}
             elif kind == "done":
+                meta.update(data)
                 if not got_text:
                     text = str(data.get("response") or NO_ANSWER_MESSAGE)
                     collected.append(text)
