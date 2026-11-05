@@ -22,6 +22,7 @@ text and text to speech stay in Home Assistant while the thinking happens in pi-
   cancels turns at about 30 s) the satellite says it is working on it. When the
   answer arrives it is announced on that satellite. If the answer ends in a
   question the satellite starts listening again.
+- Replies stream: text-to-speech starts on the first sentence while the agent is still finishing.
 - A reply that ends in a question mark keeps the microphone open.
 
 ## Options

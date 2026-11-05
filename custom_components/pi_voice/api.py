@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
+import json
 from typing import Any
 
 import aiohttp
@@ -80,5 +82,38 @@ class PiVoiceClient:
                     message = error.get("message") if isinstance(error, dict) else error
                     raise PiVoiceError(f"HTTP {resp.status}: {message}")
                 return str(data.get("response") or "")
+        except (aiohttp.ClientError, asyncio.TimeoutError) as err:
+            raise PiVoiceConnectionError(str(err) or type(err).__name__) from err
+
+    async def async_stream(self, payload: dict[str, Any], timeout: float) -> AsyncIterator[tuple[str, Any]]:
+        """Send one utterance and yield ("delta", text) events, then ("done", data)."""
+        try:
+            async with self._session.post(
+                f"{self._base}/api/conversation/stream",
+                json=payload,
+                headers=self._headers,
+                timeout=aiohttp.ClientTimeout(total=timeout, sock_read=timeout),
+            ) as resp:
+                if resp.status in (401, 403):
+                    raise PiVoiceAuthError("Invalid API key")
+                if resp.status >= 400:
+                    raise PiVoiceError(f"HTTP {resp.status}: {(await resp.text())[:200]}")
+                async for raw in resp.content:
+                    line = raw.decode("utf-8", "replace").rstrip("\r\n")
+                    if not line.startswith("data:"):
+                        continue
+                    try:
+                        event = json.loads(line[5:].strip())
+                    except ValueError:
+                        continue
+                    kind = event.get("type")
+                    if kind == "delta":
+                        yield ("delta", str(event.get("text", "")))
+                    elif kind == "done":
+                        yield ("done", event)
+                        return
+                    elif kind == "error":
+                        raise PiVoiceError(str(event.get("message", "stream error")))
+                raise PiVoiceError("stream ended without a result")
         except (aiohttp.ClientError, asyncio.TimeoutError) as err:
             raise PiVoiceConnectionError(str(err) or type(err).__name__) from err

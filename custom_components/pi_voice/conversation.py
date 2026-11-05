@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncGenerator, AsyncIterator
 import logging
 import re
-from typing import Literal
+from typing import Any, Literal
 
 from homeassistant.components import conversation, persistent_notification
 from homeassistant.components.assist_satellite import AssistSatelliteEntityFeature
@@ -47,6 +48,13 @@ async def async_setup_entry(
     async_add_entities([PiVoiceConversationEntity(entry)])
 
 
+async def _anext(events: AsyncIterator[tuple[str, Any]]) -> tuple[str, Any] | None:
+    """First event of the stream, or None when it ends at once."""
+    async for event in events:
+        return event
+    return None
+
+
 def _speakable(text: str) -> str:
     """Strip markdown so it is not spoken literally."""
     text = _MD_LINK.sub(r"\1", text)
@@ -59,6 +67,7 @@ class PiVoiceConversationEntity(conversation.ConversationEntity, conversation.Ab
 
     _attr_has_entity_name = True
     _attr_name = None
+    _attr_supports_streaming = True
 
     def __init__(self, entry: PiVoiceConfigEntry) -> None:
         """Initialize the agent."""
@@ -143,7 +152,7 @@ class PiVoiceConversationEntity(conversation.ConversationEntity, conversation.Ab
         user_input: conversation.ConversationInput,
         chat_log: conversation.ChatLog,
     ) -> conversation.ConversationResult:
-        """Send the utterance to pi-voice and speak its reply, handing off slow answers."""
+        """Stream pi-voice's reply into the chat log; hand off if the first words take too long."""
         options = self.entry.options
         satellite_id = getattr(user_input, "satellite_id", None)
         payload = {
@@ -159,25 +168,67 @@ class PiVoiceConversationEntity(conversation.ConversationEntity, conversation.Ab
         timeout = float(options.get(CONF_TIMEOUT, DEFAULT_TIMEOUT))
         payload["timeout_ms"] = int(timeout * 1000)
 
-        request = self.hass.async_create_background_task(
-            self.entry.runtime_data.async_respond(payload, timeout),
-            name=f"{DOMAIN} request {chat_log.conversation_id}",
+        events = self.entry.runtime_data.async_stream(payload, timeout)
+        first = self.hass.async_create_background_task(
+            _anext(events), name=f"{DOMAIN} first delta {chat_log.conversation_id}"
         )
+        collected: list[str] = []
         try:
             if handoff := float(options.get(CONF_HANDOFF, DEFAULT_HANDOFF)):
-                done, _ = await asyncio.wait({request}, timeout=handoff)
+                done, _ = await asyncio.wait({first}, timeout=handoff)
                 if not done:
-                    _LOGGER.info("pi-voice still working after %.0f s; handing off", handoff)
-                    self._hand_off(request, satellite_id)
+                    _LOGGER.info("pi-voice gave no words within %.0f s; handing off", handoff)
+                    self._hand_off(first, events, collected, satellite_id)
                     return self._reply(user_input, chat_log, HANDOFF_MESSAGE)
-            reply = await asyncio.shield(request)
+            first_event = await asyncio.shield(first)
         except asyncio.CancelledError:
-            _LOGGER.warning("Assist cancelled the turn; the answer will be announced when ready")
-            self._hand_off(request, satellite_id)
+            _LOGGER.warning("Assist cancelled the turn before the first words; announcing later")
+            self._hand_off(first, events, collected, satellite_id)
             raise
         except PiVoiceError as err:
             return self._error(user_input, chat_log, self._failure_message(err))
-        return self._reply(user_input, chat_log, reply)
+
+        try:
+            async for _content in chat_log.async_add_delta_content_stream(
+                user_input.agent_id, self._deltas(first_event, events, collected)
+            ):
+                pass
+        except asyncio.CancelledError:
+            _LOGGER.warning("Assist cancelled the turn mid-answer; announcing the rest later")
+            self._hand_off(None, events, collected, satellite_id)
+            raise
+        except PiVoiceError as err:
+            if not collected:
+                return self._error(user_input, chat_log, self._failure_message(err))
+            _LOGGER.warning("pi-voice stream ended early: %s", err)
+        return conversation.async_get_result_from_chat_log(user_input, chat_log)
+
+    @staticmethod
+    async def _deltas(
+        first_event: tuple[str, Any] | None,
+        events: AsyncIterator[tuple[str, Any]],
+        collected: list[str],
+    ) -> AsyncGenerator[dict[str, Any]]:
+        """Turn pi-voice events into chat-log deltas, remembering the text for late delivery."""
+        yield {"role": "assistant"}
+        pending = [first_event] if first_event is not None else []
+        async def _all() -> AsyncIterator[tuple[str, Any]]:
+            for item in pending:
+                yield item
+            async for item in events:
+                yield item
+        got_text = False
+        async for kind, data in _all():
+            if kind == "delta" and data:
+                collected.append(data)
+                got_text = True
+                yield {"content": data}
+            elif kind == "done":
+                if not got_text:
+                    text = str(data.get("response") or NO_ANSWER_MESSAGE)
+                    collected.append(text)
+                    yield {"content": text}
+                return
 
     def _failure_message(self, err: PiVoiceError) -> str:
         if isinstance(err, PiVoiceAuthError):
@@ -193,15 +244,39 @@ class PiVoiceConversationEntity(conversation.ConversationEntity, conversation.Ab
     def _needs_follow_up(text: str) -> bool:
         return text.rstrip().endswith(_QUESTION_ENDINGS)
 
-    def _hand_off(self, request: asyncio.Task[str], satellite_id: str | None) -> None:
-        """Let the request finish in the background and deliver its answer later."""
+    def _hand_off(
+        self,
+        first: asyncio.Task[tuple[str, Any] | None] | None,
+        events: AsyncIterator[tuple[str, Any]],
+        collected: list[str],
+        satellite_id: str | None,
+    ) -> None:
+        """Let the stream finish in the background and deliver the full answer later."""
         self.hass.async_create_background_task(
-            self._async_announce_when_done(request, satellite_id), name=f"{DOMAIN} announce"
+            self._async_announce_when_done(first, events, collected, satellite_id),
+            name=f"{DOMAIN} announce",
         )
 
-    async def _async_announce_when_done(self, request: asyncio.Task[str], satellite_id: str | None) -> None:
+    async def _async_announce_when_done(
+        self,
+        first: asyncio.Task[tuple[str, Any] | None] | None,
+        events: AsyncIterator[tuple[str, Any]],
+        collected: list[str],
+        satellite_id: str | None,
+    ) -> None:
         try:
-            message = _speakable(await request) or NO_ANSWER_MESSAGE
+            if first is not None:
+                first_event = await first
+                if first_event is not None and first_event[0] == "delta":
+                    collected.append(first_event[1])
+                elif first_event is not None and first_event[0] == "done" and not collected:
+                    collected.append(str(first_event[1].get("response") or ""))
+            async for kind, data in events:
+                if kind == "delta":
+                    collected.append(data)
+                elif kind == "done" and not collected:
+                    collected.append(str(data.get("response") or ""))
+            message = _speakable("".join(collected)) or NO_ANSWER_MESSAGE
         except PiVoiceError as err:
             message = self._failure_message(err)
         await self._async_deliver(satellite_id, message)
