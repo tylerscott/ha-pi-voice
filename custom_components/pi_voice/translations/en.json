@@ -1,0 +1,41 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to pi-voice",
+        "description": "The URL where the pi-voice agent listens, for example http://192.168.0.33:8787.",
+        "data": { "url": "Agent URL", "api_key": "API key (optional)" }
+      },
+      "reauth_confirm": {
+        "title": "Update the pi-voice API key",
+        "data": { "api_key": "API key" }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not reach pi-voice at that URL.",
+      "invalid_auth": "pi-voice rejected the API key.",
+      "unknown": "Unexpected response from pi-voice."
+    },
+    "abort": {
+      "already_configured": "This pi-voice agent is already configured.",
+      "reauth_successful": "The API key was updated."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "pi-voice options",
+        "data": {
+          "prompt": "Standing instructions",
+          "handoff_after": "Hand off after (seconds, 0 = never)",
+          "timeout": "Request timeout (seconds)"
+        },
+        "data_description": {
+          "prompt": "Sent to the agent as standing instructions; the agent keeps its own persona and memory.",
+          "handoff_after": "If the agent hasn't answered by then, the satellite says it is working on it and announces the answer later. Assist cancels turns at about 30 seconds.",
+          "timeout": "How long a handed-off request may run in total."
+        }
+      }
+    }
+  }
+}

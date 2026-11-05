@@ -1,0 +1,14 @@
+{
+  "domain": "pi_voice",
+  "name": "pi-voice Conversation",
+  "after_dependencies": ["assist_pipeline", "assist_satellite"],
+  "codeowners": ["@tylerscott"],
+  "config_flow": true,
+  "dependencies": ["conversation"],
+  "documentation": "https://github.com/tylerscott/ha-pi-voice",
+  "integration_type": "service",
+  "iot_class": "local_push",
+  "issue_tracker": "https://github.com/tylerscott/ha-pi-voice/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}
