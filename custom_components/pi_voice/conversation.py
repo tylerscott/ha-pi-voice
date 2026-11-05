@@ -165,6 +165,8 @@ class PiVoiceConversationEntity(conversation.ConversationEntity, conversation.Ab
             "satellite_id": satellite_id,
             "instructions": options.get(CONF_PROMPT, DEFAULT_PROMPT),
             "extra_system_prompt": user_input.extra_system_prompt,
+            # A later turn in the same Assist conversation (follow-up without the wake word).
+            "is_follow_up": any(isinstance(c, conversation.AssistantContent) for c in chat_log.content),
             **self._device_context(user_input),
         }
         timeout = float(options.get(CONF_TIMEOUT, DEFAULT_TIMEOUT))
