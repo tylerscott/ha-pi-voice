@@ -204,6 +204,10 @@ class PiVoiceConversationEntity(conversation.ConversationEntity, conversation.Ab
             if not collected:
                 return self._error(user_input, chat_log, self._failure_message(err))
             _LOGGER.warning("pi-voice stream ended early: %s", err)
+        if meta.get("silent") and not collected:
+            # The agent closed the exchange (a bare thanks, goodbye, or Whisper hearing "thank you" in silence):
+            # end without speaking.
+            return self._silent(user_input, chat_log)
         result = conversation.async_get_result_from_chat_log(user_input, chat_log)
         if options.get(CONF_KEEP_LISTENING, DEFAULT_KEEP_LISTENING):
             # Stay in the conversation unless the agent said the exchange is over.
@@ -233,7 +237,7 @@ class PiVoiceConversationEntity(conversation.ConversationEntity, conversation.Ab
                 yield {"content": data}
             elif kind == "done":
                 meta.update(data)
-                if not got_text:
+                if not got_text and not data.get("silent"):
                     text = str(data.get("response") or NO_ANSWER_MESSAGE)
                     collected.append(text)
                     yield {"content": text}
@@ -285,7 +289,9 @@ class PiVoiceConversationEntity(conversation.ConversationEntity, conversation.Ab
                     collected.append(data)
                 elif kind == "done" and not collected:
                     collected.append(str(data.get("response") or ""))
-            message = _speakable("".join(collected)) or NO_ANSWER_MESSAGE
+            message = _speakable("".join(collected))
+            if not message:
+                return
         except PiVoiceError as err:
             message = self._failure_message(err)
         await self._async_deliver(satellite_id, message)
@@ -326,6 +332,17 @@ class PiVoiceConversationEntity(conversation.ConversationEntity, conversation.Ab
         )
         # Sets continue_conversation when the reply ends in a question mark.
         return conversation.async_get_result_from_chat_log(user_input, chat_log)
+
+    @staticmethod
+    def _silent(
+        user_input: conversation.ConversationInput, chat_log: conversation.ChatLog
+    ) -> conversation.ConversationResult:
+        """End the exchange with nothing to say and the microphone closed."""
+        response = intent.IntentResponse(language=user_input.language)
+        response.async_set_speech("")
+        return conversation.ConversationResult(
+            response=response, conversation_id=chat_log.conversation_id, continue_conversation=False
+        )
 
     @staticmethod
     def _error(
